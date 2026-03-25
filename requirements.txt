@@ -1,0 +1,12 @@
+# Phase 1 — static scraping, database, and reporting
+requests==2.32.3
+beautifulsoup4==4.12.3
+python-dotenv==1.0.1
+pytest==8.3.5
+
+# Phase 2 (uncomment when needed)
+# playwright==1.49.0
+
+# Phase 3 (uncomment when needed)
+# anthropic==0.40.0
+# langgraph==0.2.60
