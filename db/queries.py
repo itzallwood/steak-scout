@@ -32,8 +32,8 @@ def save_prices(records: list[dict]) -> int:
     with conn:
         conn.executemany(
             """
-            INSERT INTO prices (store, cut, price, sale_price, original_price, url, scraped_at)
-            VALUES (:store, :cut, :price, :sale_price, :original_price, :url, :scraped_at)
+            INSERT INTO prices (store, cut, price, sale_price, original_price, price_unit, weight_value, weight_unit, url, scraped_at)
+            VALUES (:store, :cut, :price, :sale_price, :original_price, :price_unit, :weight_value, :weight_unit, :url, :scraped_at)
             """,
             # Merge scraped_at into each record without mutating the originals
             [{**r, "scraped_at": scraped_at} for r in records],

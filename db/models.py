@@ -43,8 +43,23 @@ def init_db() -> None:
                 price          REAL,
                 sale_price     REAL,
                 original_price REAL,
+                price_unit     TEXT,   -- e.g. "per_item" or "per_lb"
+                weight_value   REAL,   -- e.g. 8.0
+                weight_unit    TEXT,   -- "oz" or "lb"
                 url            TEXT,
                 scraped_at     TEXT    NOT NULL  -- ISO 8601 timestamp, e.g. 2026-03-26T14:00:00
             )
         """)
+        # Add new columns to existing databases that predate this schema change.
+        # ALTER TABLE ADD COLUMN is safe to run repeatedly — we catch the error
+        # if the column already exists and move on.
+        for col in (
+            "price_unit  TEXT",
+            "weight_value REAL",
+            "weight_unit  TEXT",
+        ):
+            try:
+                conn.execute(f"ALTER TABLE prices ADD COLUMN {col}")
+            except Exception:
+                pass  # column already exists
     conn.close()
