@@ -190,6 +190,7 @@ def _build_html(records: list[dict], generated_at: str) -> str:
       <tr>
         <th>Cut</th>
         <th>Store</th>
+        <th>Weight</th>
         <th>Price</th>
         <th>Last Scraped</th>
       </tr>
@@ -222,6 +223,11 @@ def _build_rows(records: list[dict]) -> str:
         url = r["url"] or "#"
         scraped_at = r["scraped_at"][:10]  # just the date portion
 
+        weight_html = (
+            f"{r['weight_value']} {r['weight_unit']}"
+            if r.get("weight_value") else "—"
+        )
+
         # Show sale badge and strikethrough original if on sale
         if r["sale_price"] and original:
             price_html = (
@@ -236,6 +242,7 @@ def _build_rows(records: list[dict]) -> str:
       <tr>
         <td><a href="{url}" target="_blank">{cut}</a></td>
         <td>{store}</td>
+        <td>{weight_html}</td>
         <td>{price_html}</td>
         <td>{scraped_at}</td>
       </tr>""")

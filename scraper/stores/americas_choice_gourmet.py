@@ -8,7 +8,7 @@ Platform: WordPress + WooCommerce (static HTML — no Playwright needed)
 import logging
 
 from scraper.base_scraper import BaseScraper
-from scraper.utils import parse_price
+from scraper.utils import parse_price, parse_weight
 
 logger = logging.getLogger(__name__)
 
@@ -23,17 +23,25 @@ class AmericasChoiceGourmetScraper(BaseScraper):
 
     def scrape(self) -> list[dict]:
         """
-        Scrape all beef products from the category page.
+        Two-phase scrape:
 
-        WooCommerce renders products as <li> tags inside <ul class="products">.
-        We walk every page (following the "next" pagination link) until there
-        are no more pages.
+        Phase 1 — category page(s):
+            Walk all paginated pages of /product-category/beef/ and collect
+            product name, price, sale price, and detail URL.
+
+        Phase 2 — product detail pages:
+            Visit each product URL and extract the description text, then use
+            regex to pull out the weight (oz or lb) for that product.
+
+        Splitting into two phases keeps each method focused on one thing and
+        makes it easy to test or skip Phase 2 independently.
         """
-        results = []
+        # --- Phase 1: collect basic records from category listing ---
+        records = []
         url = self.base_url
 
         while url:
-            self.logger.info("Scraping page: %s", url)
+            self.logger.info("Phase 1 — scraping listing page: %s", url)
             soup = self.fetch(url)
             if soup is None:
                 break
@@ -44,18 +52,24 @@ class AmericasChoiceGourmetScraper(BaseScraper):
             for item in items:
                 record = self._parse_product(item)
                 if record:
-                    results.append(record)
+                    records.append(record)
 
             # Follow pagination — WooCommerce uses <a class="next page-numbers">
             next_link = soup.select_one("a.next.page-numbers")
             url = next_link["href"] if next_link else None
 
-            # Be polite — pause before fetching the next page
             if url:
                 self.sleep()
 
-        self.logger.info("Total products scraped: %d", len(results))
-        return results
+        # --- Phase 2: enrich each record with weight from the detail page ---
+        for record in records:
+            self.sleep()  # polite delay between detail page requests
+            weight_value, weight_unit = self._scrape_weight(record["url"])
+            record["weight_value"] = weight_value
+            record["weight_unit"] = weight_unit
+
+        self.logger.info("Total products scraped: %d", len(records))
+        return records
 
     def _parse_product(self, item) -> dict | None:
         """
@@ -106,5 +120,47 @@ class AmericasChoiceGourmetScraper(BaseScraper):
             "price": price,
             "sale_price": sale_price,
             "original_price": original_price,
+            "price_unit": "per_item",  # this site sells by item, not per lb
             "url": product_url,
+            # weight fields are filled in during Phase 2
+            "weight_value": None,
+            "weight_unit": None,
         }
+
+    def _scrape_weight(self, url: str) -> tuple[float | None, str | None]:
+        """
+        Phase 2: fetch a product detail page and extract the weight.
+
+        WooCommerce detail pages have two places the weight might live:
+          1. Short description — a <p> just below the price block, often
+             contains "8 oz" or "1.5 lb" inline with the product copy.
+          2. Description tab — div.woocommerce-product-details__short-description
+             or div#tab-description for longer product descriptions.
+
+        We try the short description first (more reliable), then fall back to
+        the full description tab text.
+        """
+        self.logger.info("Phase 2 — fetching detail page: %s", url)
+        soup = self.fetch(url)
+        if soup is None:
+            return None, None
+
+        # Candidate elements that typically contain weight info, in priority order
+        candidates = [
+            soup.select_one("div.woocommerce-product-details__short-description"),
+            soup.select_one("div#tab-description"),
+            soup.select_one("div.woocommerce-tabs"),
+        ]
+
+        for element in candidates:
+            if element:
+                text = element.get_text(" ", strip=True)
+                weight_value, weight_unit = parse_weight(text)
+                if weight_value:
+                    self.logger.info(
+                        "Found weight %.1f %s in: %.60s…", weight_value, weight_unit, text
+                    )
+                    return weight_value, weight_unit
+
+        self.logger.warning("No weight found on detail page: %s", url)
+        return None, None
