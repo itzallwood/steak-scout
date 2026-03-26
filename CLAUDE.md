@@ -63,11 +63,7 @@ steak-scout/
 │   ├── utils.py               ← Shared helpers (price parsing, text cleaning, etc.)
 │   └── stores/
 │       ├── __init__.py
-│       ├── kroger.py          ← One file per store/site
-│       ├── walmart.py
-│       ├── sams_club.py
-│       ├── costco.py
-│       └── local_butcher.py  ← Generic scraper for simple butcher sites
+│       └── americas_choice_gourmet.py  ← America's Choice Gourmet (WooCommerce)
 │
 ├── agent/
 │   ├── __init__.py
@@ -129,7 +125,8 @@ between tool calls.
 - Every scraper inherits from `BaseScraper` in `base_scraper.py`
 - Each scraper must implement a `scrape()` method that returns a list of dicts:
   ```python
-  [{"store": "Kroger", "cut": "ribeye", "price_per_lb": 12.99, "url": "..."}]
+  [{"store": "America's Choice Gourmet", "cut": "ribeye", "price": 40.00,
+    "sale_price": 40.00, "original_price": 45.00, "url": "..."}]
   ```
 - Never hardcode URLs in scrapers — pass them in or load from config
 - Always include a `time.sleep()` between requests to be a polite scraper
@@ -161,12 +158,13 @@ ANTHROPIC_API_KEY=your_key_here
 
 ## Development Phases
 
-### Phase 1 — Learn scraping basics (start here)
-- [ ] Set up repo structure and virtual environment
-- [ ] Build `BaseScraper` class
-- [ ] Scrape one simple local butcher site using `requests` + `BeautifulSoup`
-- [ ] Save results to SQLite
-- [ ] Generate a basic HTML report manually (no agent yet)
+### Phase 1 — Learn scraping basics ✅ Complete
+- [x] Set up repo structure and virtual environment
+- [x] Build `BaseScraper` class
+- [x] Scrape one simple local butcher site using `requests` + `BeautifulSoup`
+      → America's Choice Gourmet (`scraper/stores/americas_choice_gourmet.py`)
+- [x] Save results to SQLite
+- [x] Generate a basic HTML report manually (no agent yet)
 
 ### Phase 2 — Add JS-heavy scrapers
 - [ ] Add Playwright for Walmart or Costco
