@@ -33,16 +33,93 @@ web scraping fundamentals, AI agents, and LLM integration.
 
 ---
 
-## Target Stores (Phase 1)
+## Target Stores — Confirmed Intelligence
 
-| Store Type | Examples | Scraping Approach |
+All stores below have been researched and the scraping approach verified.
+
+### Phase 1 — Local Butchers (Static HTML, requests + BeautifulSoup)
+
+| Store | URL | Platform | Notes |
+|---|---|---|---|
+| America's Choice Gourmet | `americaschoicegourmet.com/product-category/beef/` | WordPress/WooCommerce | Two-phase scrape: category page → product detail page for weight. Weight in description text, extract with regex. Prices per item, not per lb. |
+| The Butcher's Market (Wilmington) | `wilmington.thebutchersmarkets.com/Meat-and-Seafood-Beef-Steaks/` | Custom e-commerce | Static HTML, clean URL structure, no login required. Straightforward category page scrape. |
+
+**WooCommerce scraper pattern (Americas Choice Gourmet):**
+- Phase 1: Scrape `/product-category/beef/` for name, price, sale_price, product URL
+- Phase 2: Visit each product URL, extract short description
+- Use regex to pull weight: `re.search(r'(\d+\.?\d*)\s*(oz|lb)', description, re.IGNORECASE)`
+- Default `weight_value` and `weight_unit` to `None` if regex finds nothing — don't crash
+
+**Standard output dict for ALL scrapers:**
+```python
+{
+  "store": "America's Choice Gourmet",
+  "cut": "Filet Mignon",
+  "price": 27.00,
+  "sale_price": None,       # original price if on sale, else None
+  "weight_value": 8.0,
+  "weight_unit": "oz",
+  "price_unit": "per_item", # or "per_lb"
+  "url": "https://...",
+  "scraped_at": "2026-03-26T14:00:00"
+}
+```
+
+### Phase 2 — Walmart (requests + JSON extraction)
+
+| Store | URL | Approach | Difficulty |
+|---|---|---|---|
+| Walmart | `walmart.com/search?q=steak+beef` | requests + JSON parse | ⭐⭐ Medium |
+
+**Key discovery:** Walmart embeds ALL product data in a `<script id="__NEXT_DATA__">` tag
+as a JSON object — no JavaScript rendering needed. Use `requests` + `BeautifulSoup` to
+grab the script tag, then `json.loads()` to parse it.
+
+**Confirmed data path:**
+```python
+data = json.loads(soup.find("script", {"id": "__NEXT_DATA__"}).text)
+items = data["props"]["pageProps"]["initialData"]["searchResult"]["itemStacks"][0]["items"]
+
+# Each item has:
+item["name"]                        # "Beef Choice Angus NY Strip Steak, 0.54-1.56 lb"
+item["priceInfo"]["linePriceDisplay"]  # "$15.52" (tray price)
+item["priceInfo"]["unitPrice"]         # "$20.97/lb"
+item["priceInfo"]["finalCostByWeight"] # True/False — priced per lb or flat
+```
+
+**Main challenge:** Bot detection. Walmart blocks plain requests quickly.
+Mitigations to implement in order:
+1. Rotate realistic User-Agent headers
+2. Add `time.sleep(2-5)` between requests
+3. Add `Referer` and `Accept-Language` headers to mimic a real browser
+4. If still blocked, use Playwright as fallback (it worked in browser testing)
+
+**Location note:** Walmart search results are location-aware based on IP.
+Running locally will naturally return your nearest Wilmington store's inventory.
+
+### Phase 3 — Lowe's Foods (Playwright + cookie injection)
+
+| Store | URL | Approach | Difficulty |
+|---|---|---|---|
+| Lowe's Foods | `shop.lowesfoods.com` | Playwright | ⭐⭐⭐ Medium-Hard |
+
+**Key finding:** `shop.lowesfoods.com` returns completely empty HTML to a plain
+`requests` call — 100% JavaScript-rendered React app. Playwright required.
+
+**Location strategy:** Prices are the same online as in-store (no location markup).
+Set store via Playwright by clicking the store picker UI once, then extract and
+hardcode the resulting store cookie for all future scrape runs.
+
+### Phase 4 — Hard Targets (Playwright + possible proxy)
+
+| Store | Difficulty | Notes |
 |---|---|---|
-| National grocery chains | Kroger, Publix, Harris Teeter | Playwright (JS-heavy, may need careful handling) |
-| Big box / warehouse | Walmart, Sam's Club, Costco | Playwright (heavily JS-rendered) |
-| Local butchers / meat markets | Independent local shops | requests + BeautifulSoup (usually simpler sites) |
+| Costco | ⭐⭐⭐ Hard | JS-rendered, login preferred for full pricing |
+| Kroger / Harris Teeter | ⭐⭐⭐⭐ Very Hard | JS-rendered, location-gated, strong bot detection |
+| Whole Foods | ⭐⭐⭐⭐ Very Hard | React app, Amazon infrastructure, aggressive bot detection |
 
-**Start with local butchers first** — simpler HTML, less bot detection, ideal for
-learning scraping fundamentals before tackling the harder national chains.
+For these, consider a scraping API service (ScrapingBee, Oxylabs) if direct
+Playwright scraping gets blocked consistently.
 
 ---
 
@@ -63,7 +140,12 @@ steak-scout/
 │   ├── utils.py               ← Shared helpers (price parsing, text cleaning, etc.)
 │   └── stores/
 │       ├── __init__.py
-│       └── americas_choice_gourmet.py  ← America's Choice Gourmet (WooCommerce)
+│       ├── americas_choice_gourmet.py    ← Phase 1: WooCommerce, two-phase scrape
+│       ├── butchers_market_wilmington.py ← Phase 1: Custom e-commerce, static HTML
+│       ├── walmart.py                    ← Phase 2: requests + __NEXT_DATA__ JSON
+│       ├── lowes_foods.py                ← Phase 3: Playwright + cookie injection
+│       ├── costco.py                     ← Phase 4: Playwright
+│       └── kroger.py                     ← Phase 4: Playwright + possible proxy
 │
 ├── agent/
 │   ├── __init__.py
@@ -125,8 +207,7 @@ between tool calls.
 - Every scraper inherits from `BaseScraper` in `base_scraper.py`
 - Each scraper must implement a `scrape()` method that returns a list of dicts:
   ```python
-  [{"store": "America's Choice Gourmet", "cut": "ribeye", "price": 40.00,
-    "sale_price": 40.00, "original_price": 45.00, "url": "..."}]
+  [{"store": "Kroger", "cut": "ribeye", "price_per_lb": 12.99, "url": "..."}]
   ```
 - Never hardcode URLs in scrapers — pass them in or load from config
 - Always include a `time.sleep()` between requests to be a polite scraper
@@ -158,29 +239,39 @@ ANTHROPIC_API_KEY=your_key_here
 
 ## Development Phases
 
-### Phase 1 — Learn scraping basics ✅ Complete
-- [x] Set up repo structure and virtual environment
-- [x] Build `BaseScraper` class
-- [x] Scrape one simple local butcher site using `requests` + `BeautifulSoup`
-      → America's Choice Gourmet (`scraper/stores/americas_choice_gourmet.py`)
-- [x] Save results to SQLite
-- [x] Generate a basic HTML report manually (no agent yet)
+### Phase 1 — Local butchers, static HTML (start here)
+- [ ] Set up repo structure and virtual environment
+- [ ] Build `BaseScraper` class in `scraper/base_scraper.py`
+- [ ] Build `americas_choice_gourmet.py` — WooCommerce two-phase scrape
+- [ ] Build `butchers_market_wilmington.py` — custom e-commerce static scrape
+- [ ] Save results to SQLite via `db/models.py` and `db/queries.py`
+- [ ] Generate a basic HTML report manually (no agent yet)
+- [ ] Confirm both scrapers return clean, consistent output dicts
 
-### Phase 2 — Add JS-heavy scrapers
-- [ ] Add Playwright for Walmart or Costco
-- [ ] Handle bot detection gracefully (retry logic, user-agent headers)
-- [ ] Expand to Kroger or Publix
+### Phase 2 — Walmart, JSON extraction
+- [ ] Build `walmart.py` — extract `__NEXT_DATA__` JSON from page
+- [ ] Add User-Agent rotation and request headers to `scraper/utils.py`
+- [ ] Add retry logic with backoff for blocked requests
+- [ ] Confirm price per lb data flowing correctly into SQLite
 
-### Phase 3 — Build the AI agent
-- [ ] Define LangGraph tools wrapping the scrapers and db queries
-- [ ] Build the agent graph in `price_agent.py`
-- [ ] Connect to Claude via Anthropic SDK
-- [ ] Agent drives the full scrape → store → report pipeline
+### Phase 3 — Lowe's Foods, Playwright
+- [ ] Install and configure Playwright (`playwright install chromium`)
+- [ ] Build `lowes_foods.py` — headless browser scrape
+- [ ] Handle store location selection, extract and hardcode store cookie
+- [ ] Introduce async pattern only here where Playwright requires it
 
-### Phase 4 — Polish
+### Phase 4 — Build the AI agent
+- [ ] Define LangGraph tools wrapping scrapers and db queries in `agent/tools.py`
+- [ ] Build the agent graph in `agent/price_agent.py`
+- [ ] Connect to Claude via Anthropic SDK (use claude-sonnet-4-6 model)
+- [ ] Agent drives the full scrape → store → report pipeline end to end
+
+### Phase 5 — Hard targets + polish
+- [ ] Attempt Costco and/or Kroger with Playwright
+- [ ] Evaluate proxy service (ScrapingBee) if bot detection is a blocker
 - [ ] Improve HTML report design
-- [ ] Add scheduling (run automatically on a cron or task scheduler)
-- [ ] Add error handling and retry logic throughout
+- [ ] Add scheduling (cron or task scheduler)
+- [ ] Add comprehensive error handling and retry logic throughout
 
 ---
 
