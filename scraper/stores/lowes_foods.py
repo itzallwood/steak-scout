@@ -107,21 +107,39 @@ class LowesFoodsScraper:
 
     def _is_beef_steak(self, name: str) -> bool:
         """
-        Return True if the product name looks like a beef steak.
+        Return True only if the product is a fresh beef steak cut.
 
-        The search for "steak" returns sauces, tuna steaks, and other
-        non-beef items — this filter keeps only the cuts we care about.
+        Strategy: require at least one beef-specific cut keyword AND block
+        anything that matches a known non-beef pattern. Using a positive
+        allowlist prevents salad dressings, dog food, TV dinners, ham, and
+        other "steak"-adjacent products from slipping through.
         """
         name_lower = name.lower()
-        beef_keywords = ["beef", "steak", "ribeye", "sirloin", "filet", "tenderloin",
-                         "strip", "porterhouse", "t-bone", "angus", "wagyu", "brisket",
-                         "flank", "chuck", "round"]
-        skip_keywords = ["sauce", "seasoning", "marinade", "tuna", "salmon", "chicken",
-                         "pork", "sliced sandwich", "steak umm", "fries", "tomato",
-                         "burger", "meatball", "hot dog", "sausage"]
+
+        # Must contain a real beef cut keyword to pass
+        cut_keywords = [
+            "ribeye", "rib eye", "sirloin", "filet mignon", "tenderloin",
+            "new york strip", "ny strip", "strip steak", "t-bone", "porterhouse",
+            "flank steak", "skirt steak", "flat iron", "chuck steak", "cube steak",
+            "round steak", "shaved steak", "angus beef", "wagyu", "beef steak",
+            "grass fed beef", "grass-fed beef",
+        ]
+
+        # Hard blocklist — any match disqualifies the product entirely
+        skip_keywords = [
+            "ham steak", "ham steaks", "dressing", "sauce", "seasoning", "marinade",
+            "soup", "burrito", "bowl", "taquito", "roll", "sandwich", "calzone",
+            "dog food", "canine", "cat food", "feline",
+            "lean cuisine", "healthy choice", "banquet", "stouffer", "hormel",
+            "marie callender", "boston market", "campbells",
+            "salisbury", "country fried", "frozen dinner",
+            "tuna", "salmon", "tilapia", "shrimp", "chicken", "pork", "lamb",
+            "turkey", "pepperoni", "tomato", "tomatoes",
+        ]
+
         if any(skip in name_lower for skip in skip_keywords):
             return False
-        return any(kw in name_lower for kw in beef_keywords)
+        return any(kw in name_lower for kw in cut_keywords)
 
     async def _parse_card(self, card) -> dict | None:
         """

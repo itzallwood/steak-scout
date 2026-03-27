@@ -46,25 +46,29 @@ def save_prices(records: list[dict]) -> int:
 
 def get_latest_prices(store: str | None = None) -> list[dict]:
     """
-    Return the most recent price record for each (store, cut) pair.
+    Return all price records from the most recent scrape session per store.
 
-    Optionally filter by store name. Results are sorted by price ascending
-    so the best deals appear first.
+    "Most recent scrape session" means all rows whose scraped_at matches the
+    single latest scraped_at for that store. This ensures that if a product
+    was dropped by the scraper in a newer run (e.g. after a filter fix), it
+    won't linger in the report from an older run.
+
+    Optionally filter by store name. Results are sorted by price ascending.
     """
     init_db()
     conn = get_connection()
 
-    # Subquery finds the latest scraped_at per (store, cut) combination,
-    # then we join back to get the full row for that snapshot.
+    # Step 1: find the latest scraped_at per store
+    # Step 2: return all records from that exact timestamp for each store
+    # This means a whole store's latest batch is shown, not stale cuts mixed in.
     query = """
         SELECT p.*
         FROM prices p
         INNER JOIN (
-            SELECT store, cut, MAX(scraped_at) AS latest
+            SELECT store, MAX(scraped_at) AS latest
             FROM prices
-            GROUP BY store, cut
+            GROUP BY store
         ) latest ON p.store = latest.store
-               AND p.cut   = latest.cut
                AND p.scraped_at = latest.latest
         {where}
         ORDER BY p.price ASC
@@ -78,7 +82,6 @@ def get_latest_prices(store: str | None = None) -> list[dict]:
         rows = conn.execute(query.format(where="")).fetchall()
 
     conn.close()
-    # Convert sqlite3.Row objects to plain dicts for easy use elsewhere
     return [dict(r) for r in rows]
 
 
@@ -95,11 +98,10 @@ def get_best_deals(cut: str | None = None) -> list[dict]:
         SELECT p.*
         FROM prices p
         INNER JOIN (
-            SELECT store, cut, MAX(scraped_at) AS latest
+            SELECT store, MAX(scraped_at) AS latest
             FROM prices
-            GROUP BY store, cut
+            GROUP BY store
         ) latest ON p.store = latest.store
-               AND p.cut   = latest.cut
                AND p.scraped_at = latest.latest
         {where}
         ORDER BY p.price ASC
